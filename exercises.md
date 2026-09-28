@@ -168,6 +168,12 @@ thư mục hệ thống, và nếu có thoát ra thì cũng chỉ là UID 10001 
 quyền gì trên host. Tôi đã kiểm tra: `docker compose exec agent id` trả về
 `uid=10001(app) gid=10001(app)`.
 
+Khi rà soát, tôi thấy `USER` thôi chưa đủ: bản đầu tôi copy code bằng
+`COPY --chown=app:app`, nên user `app` vẫn **sửa được chính code đang chạy**
+(thử `touch /app/app/main.py` thì thành công). Tôi bỏ `--chown` để code thuộc
+root và user `app` chỉ đọc được. Chạy lại lệnh đó thì báo
+`Permission denied`.
+
 ---
 
 ### Câu 6 — Cửa sổ trượt (CP3)

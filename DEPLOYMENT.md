@@ -19,7 +19,7 @@
 | Mục | Nội dung |
 |-----|----------|
 | Public URL | https://k4-l3a-day12-damquangtrung-2a202602525-cloudserv-production.up.railway.app |
-| Platform | Railway (builder Dockerfile, cấu hình trong `railway.toml`) |
+| Platform | Railway (builder Dockerfile, cấu hình trong `railway.toml`). Deploy do GitHub Actions thực hiện (`.github/workflows/ci.yml`): chỉ chạy khi test và build xanh trên `main` |
 | Ngày deploy | 2026-09-28 |
 
 ## Biến Môi Trường Đã Set Trên Cloud
