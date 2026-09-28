@@ -57,6 +57,10 @@ def get_cost_guard() -> CostGuard:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """CHO SẴN — chạy lúc app khởi động và lúc tắt."""
+    # Fail fast: đọc cấu hình ngay lúc khởi động. get_settings() vốn chỉ được
+    # gọi lần đầu ở /ask, nên thiếu AGENT_API_KEY thì app vẫn lên, /health vẫn
+    # 200 và lỗi chỉ lộ ra thành 500 khi có người gọi /ask.
+    get_settings()
     lifecycle.install()
     log_event("service_started", service=SERVICE_NAME, version=SERVICE_VERSION)
     yield
