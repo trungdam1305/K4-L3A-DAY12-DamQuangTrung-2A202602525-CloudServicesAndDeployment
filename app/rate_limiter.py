@@ -60,12 +60,24 @@ class RateLimiter:
         sẽ chặn nhầm ngay ở request thứ ``limit``.
         """
         now = now if now is not None else time.time()
-        if self.hit_count(user_id, now) >= self.limit:
+        key = self._key(user_id)
+        member = f"{now}:{uuid.uuid4().hex}"
+
+        # Dọn cũ + ghi nhận + đếm trong một MULTI/EXEC: đếm rồi mới ghi ở hai
+        # lệnh riêng thì N request đồng thời (nhiều instance) cùng thấy count
+        # chưa đầy và cùng lọt qua. Ghi trước rồi so `> limit` (thay vì
+        # `>= limit`) nên request thứ `limit` vẫn được cho qua.
+        pipe = self.client.pipeline()
+        pipe.zremrangebyscore(key, 0, now - WINDOW_SECONDS)
+        pipe.zadd(key, {member: now})
+        pipe.zcard(key)
+        pipe.expire(key, WINDOW_SECONDS)
+        count = pipe.execute()[2]
+
+        if count > self.limit:
+            self.client.zrem(key, member)  # request bị chặn không chiếm quota
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="rate limit exceeded",
                 headers={"Retry-After": str(WINDOW_SECONDS)},
             )
-        key = self._key(user_id)
-        self.client.zadd(key, {f"{now}:{uuid.uuid4().hex}": now})
-        self.client.expire(key, WINDOW_SECONDS)

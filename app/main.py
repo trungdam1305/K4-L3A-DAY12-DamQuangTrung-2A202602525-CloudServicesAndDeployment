@@ -16,9 +16,10 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from redis.exceptions import RedisError
 
 from utils.mock_llm import ask_llm
 
@@ -68,6 +69,21 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Day 12 Production Agent", version=SERVICE_VERSION, lifespan=lifespan)
+
+
+@app.exception_handler(RedisError)
+async def redis_unavailable(_request: Request, exc: RedisError):
+    """Redis mất kết nối giữa chừng → 503 có Retry-After thay vì 500 + traceback.
+
+    Lỗi nằm ở dependency, không phải ở request của client, nên báo "tạm thời
+    không phục vụ được" để client/LB thử lại sau.
+    """
+    log_event("redis_unavailable", level="error", error=type(exc).__name__)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "storage temporarily unavailable"},
+        headers={"Retry-After": "5"},
+    )
 
 
 class AskRequest(BaseModel):

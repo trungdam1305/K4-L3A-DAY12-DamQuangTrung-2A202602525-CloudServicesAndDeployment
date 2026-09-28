@@ -13,6 +13,9 @@ from fastapi import Header, HTTPException, status
 from .config import get_settings
 
 ANONYMOUS_USER = "anonymous"
+# user_id nằm trong tên key Redis (ratelimit:/cost:/history:<user>) — không
+# giới hạn thì client tạo được key dài tùy ý.
+MAX_USER_ID_LENGTH = 64
 
 
 def verify_api_key(
@@ -42,5 +45,10 @@ def verify_api_key(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid or missing API key",
             headers={"WWW-Authenticate": "ApiKey"},
+        )
+    if x_user_id is not None and len(x_user_id) > MAX_USER_ID_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"X-User-Id longer than {MAX_USER_ID_LENGTH} characters",
         )
     return x_user_id or ANONYMOUS_USER
