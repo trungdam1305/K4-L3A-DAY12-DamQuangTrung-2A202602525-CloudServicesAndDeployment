@@ -97,18 +97,45 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           SERVICE: ${{ vars.RAILWAY_SERVICE }}
+        # GitHub chạy script bằng `bash -e`: một lệnh trả mã khác 0 là job dừng
+        # ngay. `read` gặp EOF (API Railway chập chờn, không in ra gì) trả 1, nên
+        # mọi `read` đều kèm `|| true` và kết quả rỗng được coi là "thử lại".
         run: |
           latest() {
-            railway deployment list --service "$SERVICE" --limit 1 --json \
-              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[0]["id"], d[0]["status"]) if d else print("none none")'
+            # In "<id> <status>" của deployment mới nhất; in rỗng nếu API lỗi.
+            railway deployment list --service "$SERVICE" --limit 1 --json 2>/dev/null \
+              | python3 -c 'import json, sys
+          try:
+              d = json.load(sys.stdin)
+          except ValueError:
+              sys.exit(0)
+          print(d[0]["id"], d[0]["status"]) if d else print("none none")' || true
           }
-          read -r before _ < <(latest)
+
+          # Không biết deployment hiện tại thì không phân biệt được bản mới với
+          # bản cũ → dừng (đỏ) thay vì đoán, tránh báo xanh sai.
+          before=""
+          for i in $(seq 1 5); do
+            read -r before _ < <(latest) || true
+            [ -n "$before" ] && break
+            sleep 3
+          done
+          if [ -z "$before" ]; then
+            echo "không đọc được deployment hiện tại từ Railway"
+            exit 1
+          fi
           echo "deployment trước khi deploy: $before"
 
           railway up --ci --service "$SERVICE"
 
           for i in $(seq 1 60); do
-            read -r id status < <(latest)
+            id=""; status=""
+            read -r id status < <(latest) || true
+            if [ -z "$id" ]; then
+              echo "Railway API chưa trả lời, thử lại"
+              sleep 5
+              continue
+            fi
             echo "deployment mới nhất: $id -> $status"
             if [ "$id" != "$before" ]; then
               case "$status" in

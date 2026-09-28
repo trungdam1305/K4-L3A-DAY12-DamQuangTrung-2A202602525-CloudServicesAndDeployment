@@ -19,7 +19,8 @@ from functools import lru_cache
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from redis.exceptions import RedisError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from utils.mock_llm import ask_llm
 
@@ -71,12 +72,15 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Day 12 Production Agent", version=SERVICE_VERSION, lifespan=lifespan)
 
 
-@app.exception_handler(RedisError)
-async def redis_unavailable(_request: Request, exc: RedisError):
+@app.exception_handler(RedisConnectionError)
+@app.exception_handler(RedisTimeoutError)
+async def redis_unavailable(_request: Request, exc: Exception):
     """Redis mất kết nối giữa chừng → 503 có Retry-After thay vì 500 + traceback.
 
-    Lỗi nằm ở dependency, không phải ở request của client, nên báo "tạm thời
-    không phục vụ được" để client/LB thử lại sau.
+    Chỉ bắt lỗi *tạm thời* (mất kết nối, timeout; gồm cả AuthenticationError,
+    BusyLoadingError vì là lớp con của ConnectionError). Lỗi lập trình như
+    ``ResponseError: WRONGTYPE`` vẫn là 500: báo 503 + Retry-After cho nó thì
+    client/LB sẽ thử lại mãi một lỗi không bao giờ tự hết.
     """
     log_event("redis_unavailable", level="error", error=type(exc).__name__)
     return JSONResponse(
