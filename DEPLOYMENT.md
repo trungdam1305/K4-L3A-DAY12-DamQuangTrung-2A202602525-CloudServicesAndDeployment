@@ -10,17 +10,17 @@
 
 | Mục | Nội dung |
 |-----|----------|
-| Họ và tên | (điền họ tên) |
-| Mã học viên | (điền mã học viên) |
-| Repo | (điền link repo K4-L3A-DAY12-HoVaTen-MSSV-CloudServicesAndDeployment) |
+| Họ và tên | Đàm Quang Trung |
+| Mã học viên | 2A202602525 |
+| Repo | https://github.com/trungdam1305/K4-L3A-DAY12-DamQuangTrung-2A202602525-CloudServicesAndDeployment |
 
 ## Service
 
 | Mục | Nội dung |
 |-----|----------|
-| Public URL | https://TODO-thay-bang-url-that.up.railway.app |
-| Platform | Railway / Render / Cloud Run — (điền platform bạn dùng) |
-| Ngày deploy | (điền ngày) |
+| Public URL | https://k4-l3a-day12-damquangtrung-2a202602525-cloudserv-production.up.railway.app |
+| Platform | Railway (builder Dockerfile, cấu hình trong `railway.toml`) |
+| Ngày deploy | 2026-09-28 |
 
 ## Biến Môi Trường Đã Set Trên Cloud
 
@@ -28,9 +28,9 @@ Ghi tên biến và **nguồn giá trị**, không ghi giá trị:
 
 | Biến | Đã set | Ghi chú |
 |------|--------|---------|
-| `PORT` | ✅ | platform tự gán |
+| `PORT` | ✅ | Railway tự gán (log: uvicorn chạy ở cổng 8080), không set tay |
 | `AGENT_API_KEY` | ✅ | đặt trong dashboard, không nằm trong repo |
-| `REDIS_URL` | ✅ | (điền: Redis add-on của platform / Upstash / ...) |
+| `REDIS_URL` | ✅ | Redis service trong cùng project Railway, tham chiếu `${{Redis.REDIS_URL}}` (private network `redis.railway.internal`) |
 | `RATE_LIMIT_PER_MINUTE` | ✅ | 10 |
 | `MONTHLY_BUDGET_USD` | ✅ | 10.0 |
 | `LOG_LEVEL` | ✅ | INFO |
@@ -72,9 +72,58 @@ done; echo
 
 Dán output của các lệnh trên vào đây:
 
+Chạy ngày 2026-09-28 với `URL=https://k4-l3a-day12-damquangtrung-2a202602525-cloudserv-production.up.railway.app` (đã bỏ bớt header `date`/`server`/`x-railway-*`; API key được đọc từ biến môi trường, không ghi ra):
+
 ```
-(điền output)
+$ curl -i $URL/health
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 57
+x-hikari-trace: sin1.hs0s
+Connection: keep-alive
+
+{"status":"ok","service":"day12-agent","version":"1.0.0"}
+
+
+$ curl -i $URL/ready
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 31
+x-hikari-trace: sin1.98a6
+Connection: keep-alive
+
+{"status":"ready","redis":true}
+
+
+$ curl -i -X POST $URL/ask (không có API key)
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json
+www-authenticate: ApiKey
+Content-Length: 39
+x-hikari-trace: sin1.hs0s
+Connection: keep-alive
+
+{"detail":"invalid or missing API key"}
+
+
+$ curl -i -X POST $URL/ask (có X-API-Key, body UTF-8)
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 279
+x-hikari-trace: sin1.hs0s
+vary: accept-encoding
+Connection: keep-alive
+
+{"answer":"Câu hỏi hay. Deploy là gì thường được giải quyết bằng cách chuẩn hóa môi trường chạy: cùng một image chạy giống nhau ở laptop và trên cloud.","user_id":"sv-test","history_length":0,"cost_usd":2.145e-05,"tokens":{"in":3,"out":35}}
+
+
+$ rate limit: 15 lần /ask
+200 200 200 200 200 200 200 200 200 200 429 429 429 429 429
 ```
+
+Ghi chú: gửi câu hỏi có dấu tiếng Việt bằng `-d '...'` trong Git Bash trên Windows
+có thể bị 400 do đối số dòng lệnh không phải UTF-8; gửi body từ file UTF-8
+(`--data-binary @q.json`) thì trả 200 như trên.
 
 ## Ảnh Chụp Màn Hình
 
@@ -87,15 +136,4 @@ Dán output của các lệnh trên vào đây:
 
 ## Nếu Dùng Phương Án Dự Phòng
 
-Không đăng ký được tài khoản cloud? Vẫn nộp được bài, nhưng CP5 tối đa 60% điểm:
-
-1. Đặt `LOCAL_FALLBACK=true` trong `.env`
-2. Chạy `docker compose up -d` rồi kiểm tra `docker compose ps`
-3. Chụp màn hình vào `screenshots/`
-4. Chạy `pytest tests/test_cp5.py -v` — bộ test sẽ tự chuyển sang kiểm tra
-   `http://localhost:8000`
-5. Ghi rõ lý do không deploy được vào phần dưới đây:
-
-```
-(điền lý do nếu dùng phương án dự phòng, ngược lại xóa mục này)
-```
+Không áp dụng — service đã deploy thành công lên Railway (`LOCAL_FALLBACK=false`).
