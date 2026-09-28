@@ -40,9 +40,11 @@ RUN groupadd --system --gid 10001 app \
 
 WORKDIR /app
 
+# Code thuộc root, user `app` chỉ đọc được: nếu app bị chiếm quyền, kẻ tấn
+# công cũng không sửa được code đang chạy.
 COPY --from=builder /opt/venv /opt/venv
-COPY --chown=app:app app ./app
-COPY --chown=app:app utils ./utils
+COPY app ./app
+COPY utils ./utils
 
 USER app
 
@@ -51,5 +53,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\", \"8000\")}/health', timeout=3)" || exit 1
 
-# Dạng shell để nội suy ${PORT}; `exec` để uvicorn là PID 1 và nhận SIGTERM trực tiếp
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Dạng shell để nội suy ${PORT} và ${LOG_LEVEL}; `exec` để uvicorn là PID 1 và
+# nhận SIGTERM trực tiếp. uvicorn chỉ nhận log level viết thường.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level \"$(echo ${LOG_LEVEL:-INFO} | tr '[:upper:]' '[:lower:]')\""]
