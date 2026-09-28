@@ -20,19 +20,21 @@ on:
 permissions:
   contents: read
 
-# Hai lần push liên tiếp: hủy lần chạy cũ, không deploy chồng lên nhau
+# Mỗi nhánh một hàng đợi: không có hai lần deploy chạy chồng lên nhau. PR thì
+# hủy lần chạy cũ cho nhanh; main thì KHÔNG hủy — hủy giữa chừng một lần
+# deploy có thể để lại bản build dở trên Railway.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
     name: Test (CP1–CP4)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -56,7 +58,7 @@ jobs:
     name: Build Docker image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build image
         run: docker build -t day12-agent:ci .
@@ -79,19 +81,45 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli@5.62.1
 
-      - name: Deploy
+      # `railway up --ci` chỉ chờ BUILD xong rồi thoát; bản mới còn phải qua
+      # healthcheck mới thay bản cũ. Không chờ bước đó thì smoke test phía sau
+      # gọi trúng bản CŨ và báo xanh cho một bản deploy có thể đang hỏng.
+      - name: Deploy and wait until the new deployment is live
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --ci --service "${{ vars.RAILWAY_SERVICE }}"
+          SERVICE: ${{ vars.RAILWAY_SERVICE }}
+        run: |
+          latest() {
+            railway deployment list --service "$SERVICE" --limit 1 --json \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[0]["id"], d[0]["status"]) if d else print("none none")'
+          }
+          read -r before _ < <(latest)
+          echo "deployment trước khi deploy: $before"
+
+          railway up --ci --service "$SERVICE"
+
+          for i in $(seq 1 60); do
+            read -r id status < <(latest)
+            echo "deployment mới nhất: $id -> $status"
+            if [ "$id" != "$before" ]; then
+              case "$status" in
+                SUCCESS) exit 0 ;;
+                FAILED|CRASHED|REMOVED|SKIPPED) exit 1 ;;
+              esac
+            fi
+            sleep 5
+          done
+          echo "hết thời gian chờ deployment mới"
+          exit 1
 
       - name: Smoke test
         env:
