@@ -1,0 +1,109 @@
+# BONUS — CI/CD với GitHub Actions
+#
+#   push / pull_request ──► test ─┐
+#                                 ├──► deploy (chỉ push lên main) ──► smoke test
+#                         build ──┘
+#
+# Secret/biến cần có trong repo → Settings → Secrets and variables → Actions:
+#   secrets.RAILWAY_TOKEN   project token của Railway (chỉ có quyền trên project này)
+#   vars.RAILWAY_SERVICE    tên service app trên Railway
+#   vars.PUBLIC_URL         URL công khai của service, dùng cho smoke test
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Hai lần push liên tiếp: hủy lần chạy cũ, không deploy chồng lên nhau
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (CP1–CP4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # test_cp5 gọi vào bản deploy đang sống, test_bonus_cicd kiểm tra badge
+      # của chính workflow này; test build Docker (-m docker) để job build lo.
+      - name: Run pytest
+        env:
+          AGENT_API_KEY: ci-dummy-key
+          REDIS_URL: "fake://"
+        run: >
+          pytest tests/ -v
+          --ignore=tests/test_cp5.py
+          --ignore=tests/test_bonus_cicd.py
+          -m "not docker"
+
+  build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t day12-agent:ci .
+
+      - name: Smoke test container
+        run: |
+          docker run -d --name agent -p 8000:8000 \
+            -e AGENT_API_KEY=ci-dummy-key -e REDIS_URL=fake:// day12-agent:ci
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:8000/health && exit 0
+            sleep 1
+          done
+          docker logs agent
+          exit 1
+
+  deploy:
+    name: Deploy to Railway
+    needs: [test, build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@5.62.1
+
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --ci --service "${{ vars.RAILWAY_SERVICE }}"
+
+      - name: Smoke test
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+        run: |
+          for i in $(seq 1 20); do
+            curl -fsS "$PUBLIC_URL/health" && break
+            sleep 6
+          done
+          curl -fsS "$PUBLIC_URL/health"
+          curl -fsS "$PUBLIC_URL/ready"
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$PUBLIC_URL/ask" \
+            -H "Content-Type: application/json" -d '{"question":"ci"}')
+          echo "/ask without key -> $code"
+          test "$code" = "401"
